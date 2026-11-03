@@ -43,10 +43,9 @@ jobs:
         if: github.event_name == 'push'
         continue-on-error: true
         run: |
-          KEY=$(basename dist/*.txt | grep -v -e urls -e robots -e llms | head -1 | sed 's/\.txt$//')
-          python3 - "$KEY" <<'PY'
-          import json, sys, urllib.request
-          key = sys.argv[1]
+          python3 - <<'PY'
+          import glob, json, os, re, urllib.request
+          key = next(os.path.basename(f)[:-4] for f in glob.glob("dist/*.txt") if re.fullmatch(r"[0-9a-f]{32}\.txt", os.path.basename(f)))
           urls = open("dist/urls.txt").read().split()
           body = json.dumps({"host": "liumcode.com", "key": key, "keyLocation": f"https://liumcode.com/{key}.txt", "urlList": urls}).encode()
           req = urllib.request.Request("https://api.indexnow.org/indexnow", data=body, headers={"Content-Type": "application/json; charset=utf-8"})
