@@ -21,6 +21,8 @@ CODE = "LIUM-ZQQPPE1W"
 SIGNUP = f"https://lium.io/register?ref={CODE}"
 PRICING_URL = "https://lium.io/pricing.json"
 FALLBACK = os.path.join(ROOT, "data", "pricing-fallback.json")
+SITE_NAME = "Lium Referral Code"
+INDEXNOW_KEY = "5c1e8a4f7b3d4e2a9f6c0b1d8e7a3c42"
 
 e = html.escape
 
@@ -76,10 +78,11 @@ body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-ap
 a{color:var(--accent2)}
 .wrap{max-width:960px;margin:0 auto;padding:0 16px}
 header.top{border-bottom:1px solid var(--line)}
-header.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:56px}
+header.top .wrap{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 12px;min-height:56px;padding-top:8px;padding-bottom:8px}
 .brand{font-weight:700;color:var(--text);text-decoration:none}
 .brand span{color:var(--accent2)}
-nav a{color:var(--muted);text-decoration:none;margin-left:16px;font-size:15px}
+nav{display:flex;gap:16px;flex-wrap:wrap}
+nav a{color:var(--muted);text-decoration:none;font-size:15px}
 nav a:hover{color:var(--text)}
 h1{font-size:clamp(28px,5vw,42px);line-height:1.15;margin:40px 0 12px;letter-spacing:-.02em}
 h2{font-size:24px;margin:48px 0 12px;letter-spacing:-.01em}
@@ -128,9 +131,42 @@ var el=document.querySelector('.code');r.selectNodeContents(el);var s=getSelecti
 """
 
 
-def page(path, title, desc, body, jsonld=None):
-    canon = BASE + ("/" if path == "index.html" else "/" + path.replace(".html", ""))
-    ld = "".join(f'<script type="application/ld+json">{json.dumps(x)}</script>' for x in (jsonld or []))
+def canonical(path):
+    return BASE + ("/" if path == "index.html" else "/" + path.replace(".html", ""))
+
+
+def breadcrumbs(items):
+    return {"@context": "https://schema.org", "@type": "BreadcrumbList",
+            "itemListElement": [{"@type": "ListItem", "position": i + 1, "name": n, "item": u}
+                                for i, (n, u) in enumerate(items)]}
+
+
+# Set by main(): whether share images were generated, and when prices were fetched.
+STATE = {"images": False, "modified": None}
+
+
+def page(path, title, desc, body, jsonld=None, og=None, og_alt=None, crumbs=None, noindex=False):
+    canon = canonical(path)
+    docs = list(jsonld or [])
+    if crumbs:
+        docs.append(breadcrumbs(crumbs))
+    if not noindex:
+        docs.append({"@context": "https://schema.org", "@type": "WebPage", "url": canon, "name": title,
+                     "description": desc, "inLanguage": "en", "dateModified": STATE["modified"],
+                     "isPartOf": {"@type": "WebSite", "name": SITE_NAME, "url": BASE + "/"}})
+    ld = "".join('<script type="application/ld+json">' + json.dumps(x, ensure_ascii=False).replace("</", "<\\/")
+                 + "</script>" for x in docs)
+    img = ""
+    if STATE["images"]:
+        og = og or "/og/home.png"
+        img = f"""<meta property="og:image" content="{BASE}{og}">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="{e(og_alt or title)}">
+<meta name="twitter:image" content="{BASE}{og}">
+<meta name="twitter:image:alt" content="{e(og_alt or title)}">"""
+    robots = "noindex" if noindex else "index,follow,max-image-preview:large,max-snippet:-1"
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -138,13 +174,22 @@ def page(path, title, desc, body, jsonld=None):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{e(title)}</title>
 <meta name="description" content="{e(desc)}">
+<meta name="robots" content="{robots}">
 <link rel="canonical" href="{canon}">
+<meta property="og:site_name" content="{SITE_NAME}">
+<meta property="og:locale" content="en_US">
 <meta property="og:title" content="{e(title)}">
 <meta property="og:description" content="{e(desc)}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="{canon}">
-<meta name="twitter:card" content="summary">
+<meta name="twitter:card" content="{'summary_large_image' if STATE['images'] else 'summary'}">
+<meta name="twitter:title" content="{e(title)}">
+<meta name="twitter:description" content="{e(desc)}">
+{img}
+<link rel="icon" href="/favicon.ico" sizes="48x48">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0d12">
 <style>{CSS}</style>
 {ld}
@@ -152,7 +197,7 @@ def page(path, title, desc, body, jsonld=None):
 <body>
 <header class="top"><div class="wrap">
 <a class="brand" href="/">Lium <span>Referral Code</span></a>
-<nav><a href="/#prices">GPU prices</a><a href="/#faq">FAQ</a></nav>
+<nav><a href="/#prices">GPU prices</a><a href="/free-credits">Free credits</a><a href="/#faq">FAQ</a></nav>
 </div></header>
 <main class="wrap">
 {body}
@@ -273,14 +318,18 @@ New accounts get a $5 signup credit to try a GPU.</p>
 <div class="card"><b>Spot</b><span>cheaper pods; the provider can reclaim them</span></div>
 <div class="card"><b>Grants</b><span>startups, research and open source can e-mail support@lium.io for more credit</span></div>
 </div>
+<p><a href="/free-credits">How to get Lium free credits →</a></p>
 
 <h2 id="faq">FAQ</h2>
 {faq_html(faq)}
 """
     title = f"Lium Referral Code {year}: {CODE} (+$5 Signup Credit)"
-    desc = (f"Lium referral code: {CODE}. Paste it in the “Referral code” field at signup. New accounts get $5 of GPU credit. "
-            f"Live Lium GPU prices: H100, H200, B200, RTX 5090 and more.")
-    return page("index.html", title, desc, body, [faq_ld(faq)])
+    desc = (f"Lium referral code: {CODE}. Paste it in the “Referral code” field at signup; new accounts get $5 of GPU credit. "
+            f"Live H100, H200, B200 and RTX 5090 prices.")
+    site_ld = {"@context": "https://schema.org", "@type": "WebSite", "name": SITE_NAME, "alternateName": DOMAIN,
+               "url": BASE + "/", "inLanguage": "en"}
+    return page("index.html", title, desc, body, [site_ld, faq_ld(faq)],
+                og="/og/home.png", og_alt=f"Lium referral code {CODE}")
 
 
 def build_gpu(m, models, updated):
@@ -324,14 +373,68 @@ def build_gpu(m, models, updated):
 {f'<h2>Other {e(cls.lower())} GPUs</h2>' + peer_rows if peers else ''}
 <p class="small">Prices updated {e(updated)}.</p>
 """
-    title = f"Lium {name} Price per Hour: from {usd(lo)} | Rent {name}"
-    desc = (f"Rent an NVIDIA {name} ({m['vram_gb']} GB) on Lium from {usd(lo)}/hour, billed per second. "
-            f"Live availability, prices, and the Lium referral code {CODE}.")
-    return page(f"gpu/{m['slug']}.html", title, desc, body, [faq_ld(faq)])
+    title = f"Lium {name} Price: from {usd(lo)}/hr"
+    desc = (f"Rent an NVIDIA {name} on Lium from {usd(lo)}/hr, billed per second. "
+            f"{m['vram_gb']} GB VRAM, live availability, and referral code {CODE}.")
+    return page(f"gpu/{m['slug']}.html", title, desc, body, [faq_ld(faq)],
+                og=f"/og/gpu/{m['slug']}.png", og_alt=f"Lium {name}: from {usd(lo)} per GPU-hour",
+                crumbs=[(SITE_NAME, BASE + "/"), ("GPU prices", BASE + "/#prices"), (name, canonical(f"gpu/{m['slug']}.html"))])
 
 
 FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#7c5cff"/>
 <path d="M22 16v32h22" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></svg>"""
+
+
+def build_free_credits(models, year):
+    cheap = [m for m in models if m["available_gpus"] > 0]
+    cheap.sort(key=lambda m: m["min_price_usd_per_gpu_hour"])
+    rows = "".join(f"<tr><td><a href='/gpu/{e(m['slug'])}'>{e(m['name'])}</a></td><td class='num'>{usd(m['min_price_usd_per_gpu_hour'])}</td>"
+                   f"<td class='num'>{5 / m['min_price_usd_per_gpu_hour']:.1f} h</td></tr>" for m in cheap[:10])
+    faq = [
+        ("How much free credit does Lium give?",
+         "$5 when you sign up with e-mail. It lands on your balance straight away and must be used on a GPU within 14 days."),
+        ("Why didn't I get the $5 credit?",
+         "Lium gives one credit per person. Signups that look automated, or that come after the day's credit budget is spent, get no credit. "
+         "The credit is also skipped if an account has already signed up from the same IP address."),
+        ("Can I get more than $5?",
+         "Startups, researchers and open-source projects can ask. Sign up, then e-mail support@lium.io from that account with what you're "
+         "building, a link, and the GPU model and hours you need. There's no fixed amount, and granted credit expires within 90 days."),
+        ("Does the referral code add extra credit?",
+         f"No. The $5 is the same with or without a code. Using {e(CODE)} supports this site at no cost to you."),
+    ]
+    body = f"""
+<div class="crumbs"><a href="/">Lium referral code</a> › Free credits</div>
+<h1>Lium free credits ({year}): how to get $5 of GPU time</h1>
+<p class="lead">Every new Lium account gets a $5 signup credit. Here's how to claim it, what it buys, and how to ask for more.</p>
+{codebox("Sign up with our referral code")}
+<h2>How to claim the $5 signup credit</h2>
+<ol class="steps">
+<li>Open the <a href="{e(SIGNUP)}" rel="nofollow sponsored">Lium signup page</a> and sign up with e-mail.</li>
+<li>The $5 lands on your balance right away (one per person, while the day's credit budget lasts).</li>
+<li>Rent a GPU within 14 days. After that the credit expires.</li>
+</ol>
+<h2>What $5 buys right now</h2>
+<p>Lium bills per second, so $5 goes further than it sounds. Cheapest GPUs free right now:</p>
+<div class="tablewrap"><table><thead><tr><th>GPU</th><th class="num">From $/hr</th><th class="num">$5 lasts</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<h2>More credit for startups, research and open source</h2>
+<p>Lium's grants program has no fixed amount. After signing up, e-mail <b>support@lium.io</b> from your account with what you're
+building, a link to it, and the GPU model and hours you need. Lium replies by e-mail, and any credit it grants lands on your balance
+and expires within 90 days.</p>
+<h2>Other ways to save</h2>
+<ul>
+<li>Top up with crypto, TAO or Bittensor alpha for a 2.5% bonus.</li>
+<li>Rent spot pods. They're cheaper, but the provider can reclaim them.</li>
+<li>Set a scheduled end time (<code>--ttl</code>) so a forgotten pod doesn't keep billing.</li>
+</ul>
+<h2>FAQ</h2>
+{faq_html(faq)}
+<p class="small">Source: lium.io/grants. Terms can change; check Lium's site before relying on them.</p>
+"""
+    return page("free-credits.html", f"Lium Free Credits {year}: Get $5 of GPU Time (+ Grants)",
+                "How to get Lium free credits: $5 signup credit for new accounts, what it buys, and how startups and researchers can ask for more.",
+                body, [faq_ld(faq)], og="/og/free-credits.png", og_alt="Lium free credits: $5 of GPU time",
+                crumbs=[(SITE_NAME, BASE + "/"), ("Free credits", canonical("free-credits.html"))])
 
 
 def main():
@@ -351,6 +454,27 @@ def main():
     if os.path.exists(DIST):
         shutil.rmtree(DIST)
     os.makedirs(os.path.join(DIST, "gpu"))
+    STATE["modified"] = t.isoformat()
+
+    try:
+        import og
+        os.makedirs(os.path.join(DIST, "og", "gpu"))
+        fleet = data.get("fleet", {})
+        avail = [m for m in models if m["available_gpus"] > 0]
+        stats = None
+        if avail:
+            c = min(avail, key=lambda m: m["min_price_usd_per_gpu_hour"])
+            stats = (f"GPUs from {usd(c['min_price_usd_per_gpu_hour'])}/hr", f"{fleet.get('available_gpus', 0):,} GPUs free now")
+        og.home(os.path.join(DIST, "og", "home.png"), CODE, stats)
+        og.credits(os.path.join(DIST, "og", "free-credits.png"), CODE)
+        for m in models:
+            sub = (f"{m['available_gpus']} free now" if m["available_gpus"] else "sold out right now")
+            og.gpu(os.path.join(DIST, "og", "gpu", m["slug"] + ".png"), CODE, m["name"],
+                   usd(m["min_price_usd_per_gpu_hour"]), sub, m["vram_gb"])
+        og.icons(DIST)
+        STATE["images"] = True
+    except ImportError as ex:
+        print(f"Pillow not available ({ex}); building without share images", file=sys.stderr)
 
     def write(rel, text):
         with open(os.path.join(DIST, rel), "w") as f:
@@ -359,15 +483,23 @@ def main():
     write("index.html", build_index(data, models, updated, year))
     for m in models:
         write(f"gpu/{m['slug']}.html", build_gpu(m, models, updated))
+    write("free-credits.html", build_free_credits(models, year))
 
     write("404.html", page("404.html", "Page not found | Lium Referral Code", "Page not found.",
-                           f"<h1>Page not found</h1><p>Looking for the Lium referral code? It's <b>{e(CODE)}</b>.</p>{codebox()}"))
+                           f"<h1>Page not found</h1><p>Looking for the Lium referral code? It's <b>{e(CODE)}</b>.</p>{codebox()}",
+                           noindex=True))
+    write("site.webmanifest", json.dumps({"name": SITE_NAME, "short_name": "liumcode", "start_url": "/", "display": "browser",
+                                          "background_color": "#0b0d12", "theme_color": "#0b0d12",
+                                          "icons": [{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                                                    {"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"}]}))
+    write(f"{INDEXNOW_KEY}.txt", INDEXNOW_KEY)
     write("favicon.svg", FAVICON)
     write("CNAME", DOMAIN + "\n")
     write("robots.txt", f"User-agent: *\nAllow: /\nSitemap: {BASE}/sitemap.xml\n")
 
     lastmod = t.strftime("%Y-%m-%d")
-    urls = [BASE + "/"] + [f"{BASE}/gpu/{m['slug']}" for m in models]
+    urls = [BASE + "/", BASE + "/free-credits"] + [f"{BASE}/gpu/{m['slug']}" for m in models]
+    write("urls.txt", "\n".join(urls) + "\n")  # for the IndexNow ping in CI
     write("sitemap.xml", '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
           + "".join(f"<url><loc>{u}</loc><lastmod>{lastmod}</lastmod></url>\n" for u in urls) + "</urlset>\n")
 
@@ -377,6 +509,7 @@ def main():
              f"## GPU prices (USD per GPU-hour, {updated})", ""]
     lines += [f"- [{m['name']}]({BASE}/gpu/{m['slug']}): {price_range(m)}, {m['vram_gb']} GB, {m['available_gpus']} free"
               for m in models]
+    lines += ["", "## Guides", "", f"- [Lium free credits]({BASE}/free-credits): $5 signup credit and grants"]
     write("llms.txt", "\n".join(lines) + "\n")
 
     print(f"built {len(models) + 1} pages into dist/ ({'live' if live else 'fallback'} prices, {updated})", file=sys.stderr)

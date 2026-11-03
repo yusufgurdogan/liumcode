@@ -27,6 +27,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Install Pillow (share images)
+        run: pip install pillow==11.3.0
       - name: Build site
         run: python3 build.py
       - uses: actions/configure-pages@v5
@@ -36,3 +38,17 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+      # Tell Bing/Yandex/Seznam (IndexNow) about changed pages. Only on push, not on the 6-hourly price refresh.
+      - name: Ping IndexNow
+        if: github.event_name == 'push'
+        continue-on-error: true
+        run: |
+          KEY=$(basename dist/*.txt | grep -v -e urls -e robots -e llms | head -1 | sed 's/\.txt$//')
+          python3 - "$KEY" <<'PY'
+          import json, sys, urllib.request
+          key = sys.argv[1]
+          urls = open("dist/urls.txt").read().split()
+          body = json.dumps({"host": "liumcode.com", "key": key, "keyLocation": f"https://liumcode.com/{key}.txt", "urlList": urls}).encode()
+          req = urllib.request.Request("https://api.indexnow.org/indexnow", data=body, headers={"Content-Type": "application/json; charset=utf-8"})
+          print(urllib.request.urlopen(req, timeout=30).status)
+          PY
