@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -31,6 +31,16 @@ jobs:
         run: pip install pillow==11.3.0
       - name: Build site
         run: python3 build.py
+      # Keep the price history: commit the new snapshot (also keeps the scheduled workflow from being disabled).
+      - name: Commit price snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/history.csv data/pricing-fallback.json
+          if git diff --cached --quiet; then echo "no new snapshot"; exit 0; fi
+          git commit -m "Price snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3; do git pull --rebase -q origin main && git push -q origin HEAD:main && exit 0; sleep 5; done
+          exit 1
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -12,6 +12,8 @@ import shutil
 import sys
 import urllib.request
 
+import chart
+
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DIST = os.path.join(ROOT, "dist")
 
@@ -21,6 +23,7 @@ CODE = "LIUM-ZQQPPE1W"
 SIGNUP = f"https://lium.io/register?ref={CODE}"
 PRICING_URL = "https://lium.io/pricing.json"
 FALLBACK = os.path.join(ROOT, "data", "pricing-fallback.json")
+HISTORY = os.path.join(ROOT, "data", "history.csv")
 SITE_NAME = "Lium Referral Code"
 INDEXNOW_KEY = "5c1e8a4f7b3d4e2a9f6c0b1d8e7a3c42"
 
@@ -49,9 +52,9 @@ def load_pricing():
 def usd(v):
     if v is None:
         return "–"
-    s = f"{v:.2f}"
+    s = f"{v:,.2f}"
     if abs(v * 100 - round(v * 100)) > 1e-9:
-        s = f"{v:.3f}"
+        s = f"{v:,.3f}"
     return f"${s}"
 
 
@@ -142,10 +145,10 @@ def breadcrumbs(items):
 
 
 # Set by main(): whether share images were generated, and when prices were fetched.
-STATE = {"images": False, "modified": None}
+STATE = {"images": False, "modified": None, "hist": {}}
 
 
-def page(path, title, desc, body, jsonld=None, og=None, og_alt=None, crumbs=None, noindex=False):
+def page(path, title, desc, body, jsonld=None, og=None, og_alt=None, crumbs=None, noindex=False, charts=False):
     canon = canonical(path)
     docs = list(jsonld or [])
     if crumbs:
@@ -191,7 +194,7 @@ def page(path, title, desc, body, jsonld=None, og=None, og_alt=None, crumbs=None
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0d12">
-<style>{CSS}</style>
+<style>{CSS}{chart.CHART_CSS}</style>
 {ld}
 </head>
 <body>
@@ -207,7 +210,7 @@ def page(path, title, desc, body, jsonld=None, og=None, og_alt=None, crumbs=None
 <p>Disclosure: {e(CODE)} is our referral code. If you sign up with it, Lium pays us a share of your top-ups. It costs you nothing.</p>
 <p>Prices come from Lium's public price feed and change constantly. Check lium.io before you rent.</p>
 </div></footer>
-{COPY_JS}
+{COPY_JS}{chart.CHART_JS if charts else ''}
 </body>
 </html>
 """
@@ -228,10 +231,14 @@ def price_table(models, updated):
     for m in models:
         avail = m["available_gpus"]
         status = (f'<span class="pill ok">{avail} free</span>' if avail else '<span class="pill">sold out</span>')
+        pts = STATE["hist"].get(m["slug"], [])
+        if pts:
+            cutoff = pts[-1]["t"] - dt.timedelta(days=7)
+            pts = [p for p in pts if p["t"] >= cutoff]
         rows.append(f"""<tr><td><a href="/gpu/{e(m['slug'])}">{e(m['name'])}</a></td>
-<td class="num">{m['vram_gb']} GB</td><td class="num">{price_range(m)}</td><td>{status}</td></tr>""")
+<td class="num">{m['vram_gb']} GB</td><td class="num">{price_range(m)}</td><td>{status}</td><td>{chart.sparkline(pts)}</td></tr>""")
     return f"""<div class="tablewrap"><table>
-<thead><tr><th>GPU</th><th class="num">VRAM</th><th class="num">$ / GPU / hour</th><th>Now</th></tr></thead>
+<thead><tr><th>GPU</th><th class="num">VRAM</th><th class="num">$ / GPU / hour</th><th>Now</th><th>7-day low price</th></tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
 <p class="small">From Lium's public price feed, {e(updated)}. Ranges are live asks from different providers; sold-out models show the last known price.</p>"""
 
@@ -355,6 +362,30 @@ def build_gpu(m, models, updated):
     ]
 
     peer_rows = price_table(peers, updated) if peers else ""
+    pts = STATE["hist"].get(m["slug"], [])
+    hist_html = ""
+    if pts:
+        since = pts[0]["t"].strftime("%-d %b %Y")
+        price_chart = chart.line_chart(f"p-{m['slug']}", pts, "min", f"{name} lowest price per GPU-hour over time",
+                                       usd, band_key="max")
+        avail_chart = chart.line_chart(f"a-{m['slug']}", pts, "available", f"{name} GPUs free to rent over time",
+                                       lambda v: f"{v:,.0f}", zero=True, unit=" free")
+        rows = "".join(f"<tr><td>{p['t'].strftime('%-d %b %Y, %H:%M')}</td><td class='num'>{usd(p['min'])}</td>"
+                       f"<td class='num'>{usd(p['max'])}</td><td class='num'>{p['available']}</td><td class='num'>{p['listed']}</td></tr>"
+                       for p in reversed(pts[-40:]))
+        note = ("" if len(pts) > 1 else
+                "<p class='small'>Tracking just started. A new snapshot is added every 6 hours, so the chart fills in over the coming days.</p>")
+        hist_html = f"""<h2>{e(name)} price history</h2>
+<p>Lowest and highest asking price per GPU-hour on Lium, recorded every 6 hours since {since}.</p>
+<div class="key"><span><i class="k-ln"></i>Lowest price</span><span><i class="k-band"></i>Range up to highest price</span></div>
+{price_chart}
+{note}
+<h3>{e(name)} GPUs free to rent</h3>
+{avail_chart}
+<details><summary>Show data table</summary><div class="tablewrap"><table>
+<thead><tr><th>Time (UTC)</th><th class="num">Lowest</th><th class="num">Highest</th><th class="num">Free</th><th class="num">Listed</th></tr></thead>
+<tbody>{rows}</tbody></table></div>
+<p class="small">Full history for every GPU: <a href="/data/lium-gpu-price-history.csv">lium-gpu-price-history.csv</a> (CC BY 4.0, please link back).</p></details>"""
     body = f"""
 <div class="crumbs"><a href="/">Lium referral code</a> › <a href="/#prices">GPU prices</a> › {e(name)}</div>
 <h1>Lium {e(name)} price: from {usd(lo)}/hour</h1>
@@ -366,6 +397,7 @@ def build_gpu(m, models, updated):
 <div class="card"><b>{usd(month)}</b><span>30 days at the lowest price</span></div>
 </div>
 {codebox("Sign up with our referral code to rent it")}
+{hist_html}
 <p><a href="{e(m['url'])}" rel="nofollow">See live {e(name)} listings on lium.io</a>
 · <a href="{e(m['browse_url'])}" rel="nofollow">Browse pods</a></p>
 <h2>{e(name)} on Lium: FAQ</h2>
@@ -373,12 +405,13 @@ def build_gpu(m, models, updated):
 {f'<h2>Other {e(cls.lower())} GPUs</h2>' + peer_rows if peers else ''}
 <p class="small">Prices updated {e(updated)}.</p>
 """
-    title = f"Lium {name} Price: from {usd(lo)}/hr"
+    title = f"Lium {name} Price: from {usd(lo)}/hr + History"
     desc = (f"Rent an NVIDIA {name} on Lium from {usd(lo)}/hr, billed per second. "
             f"{m['vram_gb']} GB VRAM, live availability, and referral code {CODE}.")
     return page(f"gpu/{m['slug']}.html", title, desc, body, [faq_ld(faq)],
                 og=f"/og/gpu/{m['slug']}.png", og_alt=f"Lium {name}: from {usd(lo)} per GPU-hour",
-                crumbs=[(SITE_NAME, BASE + "/"), ("GPU prices", BASE + "/#prices"), (name, canonical(f"gpu/{m['slug']}.html"))])
+                crumbs=[(SITE_NAME, BASE + "/"), ("GPU prices", BASE + "/#prices"), (name, canonical(f"gpu/{m['slug']}.html"))],
+                charts=bool(pts))
 
 
 FAVICON = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#7c5cff"/>
@@ -439,6 +472,9 @@ and expires within 90 days.</p>
 
 def main():
     data, live = load_pricing()
+    if live and chart.append(HISTORY, data):
+        print("recorded price snapshot", file=sys.stderr)
+    STATE["hist"] = chart.load(HISTORY)
     gen = data.get("generated_at") or ""
     try:
         t = dt.datetime.fromisoformat(gen.replace("Z", "+00:00"))
@@ -484,6 +520,9 @@ def main():
     for m in models:
         write(f"gpu/{m['slug']}.html", build_gpu(m, models, updated))
     write("free-credits.html", build_free_credits(models, year))
+    os.makedirs(os.path.join(DIST, "data"))
+    if os.path.exists(HISTORY):
+        shutil.copy(HISTORY, os.path.join(DIST, "data", "lium-gpu-price-history.csv"))
 
     write("404.html", page("404.html", "Page not found | Lium Referral Code", "Page not found.",
                            f"<h1>Page not found</h1><p>Looking for the Lium referral code? It's <b>{e(CODE)}</b>.</p>{codebox()}",
