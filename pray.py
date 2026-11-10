@@ -55,7 +55,7 @@ bar.setAttribute('aria-valuenow',n);
 if(mine&&Date.now()>warnUntil)me.textContent='You have sent '+fmt(mine)+' prayer'+(mine===1?'':'s')+'. The GPUs thank you.';
 x.href='https://x.com/intent/post?text='+encodeURIComponent('GPU prices are too high, so I prayed 🙏 '+fmt(n)+' prayers so far. Legend says at '+fmt(GOAL)+' they come down.')+'&url='+encodeURIComponent('https://liumcode.com/pray')}
 function get(){if(pending||inflight)return;fetch(API,{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
-if(typeof d.count==='number'){server=d.count;box.hidden=false;render()}}).catch(function(){})}
+if(typeof d.count==='number'){server=d.count;if(mine>server)setMine(server);box.hidden=false;render()}}).catch(function(){})}
 function flush(){timer=null;if(inflight||!pending)return;var n=Math.min(pending,50);inflight=true;
 fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({n:n})}).then(function(r){return r.json()})
 .then(function(d){pending-=n;if(typeof d.count==='number')server=d.count;var a=typeof d.accepted==='number'?d.accepted:0;
