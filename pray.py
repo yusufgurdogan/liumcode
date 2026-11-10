@@ -44,23 +44,29 @@ def section(heading_tag="h2", page_link=True):
 JS = """
 <script>
 (function(){var box=document.getElementById('pray');if(!box||!window.fetch)return;
-var API=%(api)s,GOAL=%(goal)d,server=0,pending=0,inflight=false,timer=null,mine=0,warned=false;
+var API=%(api)s,GOAL=%(goal)d,server=0,pending=0,inflight=false,timer=null,mine=0,warnUntil=0;
 var $=function(s){return box.querySelector(s)},cnt=$('.pray-count'),pct=$('.pray-pct'),bar=$('.pray-bar'),btn=$('.pray-btn'),me=$('.pray-mine'),x=$('.pray-x');
 try{mine=+localStorage.getItem('prayers')||0}catch(e){}
+function setMine(v){mine=Math.max(0,v);try{localStorage.setItem('prayers',mine)}catch(e){}}
 function fmt(n){return n.toLocaleString('en-US')}
 function render(){var n=server+pending,p=n/GOAL*100;cnt.textContent=fmt(n);
 pct.textContent=(p<0.01?p.toFixed(4):p<1?p.toFixed(3):p.toFixed(1))+'%%';bar.firstElementChild.style.width=Math.min(p,100)+'%%';
 bar.setAttribute('aria-valuenow',n);
-if(mine)me.textContent='You have sent '+fmt(mine)+' prayer'+(mine===1?'':'s')+'. The GPUs thank you.';
+if(mine&&Date.now()>warnUntil)me.textContent='You have sent '+fmt(mine)+' prayer'+(mine===1?'':'s')+'. The GPUs thank you.';
 x.href='https://x.com/intent/post?text='+encodeURIComponent('GPU prices are too high, so I prayed 🙏 '+fmt(n)+' prayers so far. Legend says at '+fmt(GOAL)+' they come down.')+'&url='+encodeURIComponent('https://liumcode.com/pray')}
 function get(){if(pending||inflight)return;fetch(API,{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){
 if(typeof d.count==='number'){server=d.count;box.hidden=false;render()}}).catch(function(){})}
 function flush(){timer=null;if(inflight||!pending)return;var n=Math.min(pending,50);inflight=true;
 fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({n:n})}).then(function(r){return r.json()})
-.then(function(d){pending-=n;if(typeof d.count==='number')server=d.count;
-if(d.accepted<n&&!warned){warned=true;me.textContent='Easy there. The heavens need a moment to catch up.'}})
-.catch(function(){pending-=n}).then(function(){inflight=false;render();if(pending)timer=setTimeout(flush,1000)})}
-btn.addEventListener('click',function(){pending++;mine++;try{localStorage.setItem('prayers',mine)}catch(e){}
+.then(function(d){pending-=n;if(typeof d.count==='number')server=d.count;var a=typeof d.accepted==='number'?d.accepted:0;
+if(a<n){setMine(mine-(n-a));warnUntil=Date.now()+4000;me.textContent='Easy there. The heavens need a moment to catch up.'}})
+.catch(function(){pending-=n;setMine(mine-n)}).then(function(){inflight=false;render();if(pending)timer=setTimeout(flush,1000)})}
+// Leaving the page: send what's still waiting. keepalive lets the request finish after the tab closes.
+function bye(){if(!pending)return;var n=Math.min(pending,50);pending-=n;if(timer){clearTimeout(timer);timer=null}
+try{fetch(API,{method:'POST',keepalive:true,headers:{'Content-Type':'text/plain'},body:JSON.stringify({n:n})})}catch(e){}}
+document.addEventListener('visibilitychange',function(){if(document.visibilityState==='hidden')bye()});
+window.addEventListener('pagehide',bye);
+btn.addEventListener('click',function(){pending++;setMine(mine+1);
 render();var f=document.createElement('span');f.className='pray-float';f.textContent='🙏';f.setAttribute('aria-hidden','true');
 f.style.setProperty('--dx',(Math.random()*80-40)+'px');btn.appendChild(f);setTimeout(function(){f.remove()},900);
 if(!timer&&!inflight)timer=setTimeout(flush,700)});
