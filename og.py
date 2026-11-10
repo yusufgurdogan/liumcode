@@ -123,3 +123,14 @@ def credits(path, code):
     x1 = code_pill(im, d, code, 380)
     d.text((x1 + 40, 422), "$5", font=font(96, "ExtraBold"), fill=OK, anchor="lm")
     im.save(path, optimize=True)
+
+
+def pray(path, goal):
+    im, d = base()
+    d.text((64, 250), "Pray for cheaper GPUs", font=font(84, "ExtraBold"), fill=TEXT, anchor="ls")
+    d.text((64, 320), "One global prayer counter. Everyone can add to it.", font=font(34, "Medium"), fill=MUTED, anchor="ls")
+    d.text((64, 430), f"Legend says at {goal} prayers,", font=font(44, "Bold"), fill=ACCENT2, anchor="ls")
+    d.text((64, 490), "GPU prices come down.", font=font(44, "Bold"), fill=ACCENT2, anchor="ls")
+    d.rounded_rectangle([64, 540, 64 + 520, 556], radius=8, fill=PANEL, outline=LINE)
+    d.rounded_rectangle([64, 540, 64 + 22, 556], radius=8, fill=ACCENT)
+    im.save(path, optimize=True)

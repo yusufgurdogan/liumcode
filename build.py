@@ -13,6 +13,7 @@ import sys
 import urllib.request
 
 import chart
+import pray
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DIST = os.path.join(ROOT, "dist")
@@ -224,13 +225,13 @@ def page(path, title, desc, body, jsonld=None, og=None, og_alt=None, crumbs=None
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0b0d12">
-<style>{CSS}{chart.CHART_CSS}</style>
+<style>{CSS}{chart.CHART_CSS}{pray.CSS}</style>
 {ld}
 </head>
 <body>
 <header class="top"><div class="wrap">
 <a class="brand" href="/">Lium <span>Referral Code</span></a>
-<nav><a href="/#prices">GPU prices</a><a href="/free-credits">Free credits</a><a href="/#faq">FAQ</a></nav>
+<nav><a href="/#prices">GPU prices</a><a href="/free-credits">Free credits</a><a href="/pray">🙏 Pray</a><a href="/#faq">FAQ</a></nav>
 </div></header>
 <main class="wrap">
 {body}
@@ -399,6 +400,8 @@ New accounts get a $5 signup credit to try a GPU.</p>
 </div>
 <p><a href="/free-credits">How to get Lium free credits →</a></p>
 
+{pray.section()}
+
 <h2 id="faq">FAQ</h2>
 {faq_html(faq)}
 """
@@ -407,7 +410,7 @@ New accounts get a $5 signup credit to try a GPU.</p>
             f"Live H100, H200, B200 and RTX 5090 prices.")
     site_ld = {"@context": "https://schema.org", "@type": "WebSite", "name": SITE_NAME, "alternateName": DOMAIN,
                "url": BASE + "/", "inLanguage": "en"}
-    return page("index.html", title, desc, body + TABLE_JS, [site_ld, faq_ld(faq)],
+    return page("index.html", title, desc, body + TABLE_JS + pray.JS, [site_ld, faq_ld(faq)],
                 og="/og/home.png", og_alt=f"Lium referral code {CODE}")
 
 
@@ -631,6 +634,27 @@ and expires within 90 days.</p>
                 crumbs=[(SITE_NAME, BASE + "/"), ("Free credits", canonical("free-credits.html"))])
 
 
+def build_pray():
+    body = f"""
+<div class="crumbs"><a href="/">Lium referral code</a> › Pray for cheaper GPUs</div>
+<h1>Pray for cheaper GPUs 🙏</h1>
+<p class="lead">An H100 still costs dollars per hour. Training runs cost thousands. We have tried everything else.</p>
+{pray.section("h2", page_link=False)}
+<h2>How it works</h2>
+<p>Every click adds one prayer to a single counter shared by everyone on Earth. Legend says that when it reaches
+<b>{pray.GOAL:,}</b>, GPU prices come down.</p>
+<p class="small">This is a joke. Clicking won't change GPU prices. It can't hurt, though.</p>
+<h2>Meanwhile, the practical way</h2>
+<p>While the prayers add up, compare <a href="/#prices">live GPU prices on Lium</a>, check each model's
+price history, and start with the <a href="/free-credits">$5 signup credit</a>.</p>
+{codebox()}
+"""
+    return page("pray.html", "Pray for Cheaper GPUs 🙏 | Global Prayer Counter",
+                f"GPU prices are too high. Add your prayer to the global counter: legend says at {pray.GOAL:,} prayers, GPU prices come down.",
+                body + pray.JS, og="/og/pray.png", og_alt="Pray for cheaper GPUs: global prayer counter",
+                crumbs=[(SITE_NAME, BASE + "/"), ("Pray for cheaper GPUs", canonical("pray.html"))])
+
+
 def main():
     data, live = load_pricing()
     if live and chart.append(HISTORY, data):
@@ -664,6 +688,7 @@ def main():
             stats = (f"GPUs from {usd(c['min_price_usd_per_gpu_hour'])}/hr", f"{fleet.get('available_gpus', 0):,} GPUs free now")
         og.home(os.path.join(DIST, "og", "home.png"), CODE, stats)
         og.credits(os.path.join(DIST, "og", "free-credits.png"), CODE)
+        og.pray(os.path.join(DIST, "og", "pray.png"), "{:,}".format(pray.GOAL))
         for m in models:
             sub = (f"{m['available_gpus']} free now" if m["available_gpus"] else "sold out right now")
             og.gpu(os.path.join(DIST, "og", "gpu", m["slug"] + ".png"), CODE, m["name"],
@@ -681,6 +706,7 @@ def main():
     for m in models:
         write(f"gpu/{m['slug']}.html", build_gpu(m, models, updated))
     write("free-credits.html", build_free_credits(models, year))
+    write("pray.html", build_pray())
     os.makedirs(os.path.join(DIST, "data"))
     if os.path.exists(HISTORY):
         shutil.copy(HISTORY, os.path.join(DIST, "data", "lium-gpu-price-history.csv"))
@@ -698,7 +724,7 @@ def main():
     write("robots.txt", f"User-agent: *\nAllow: /\nSitemap: {BASE}/sitemap.xml\n")
 
     lastmod = t.strftime("%Y-%m-%d")
-    urls = [BASE + "/", BASE + "/free-credits"] + [f"{BASE}/gpu/{m['slug']}" for m in models]
+    urls = [BASE + "/", BASE + "/free-credits", BASE + "/pray"] + [f"{BASE}/gpu/{m['slug']}" for m in models]
     write("urls.txt", "\n".join(urls) + "\n")  # for the IndexNow ping in CI
     write("sitemap.xml", '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
           + "".join(f"<url><loc>{u}</loc><lastmod>{lastmod}</lastmod></url>\n" for u in urls) + "</urlset>\n")
@@ -709,7 +735,8 @@ def main():
              f"## GPU prices (USD per GPU-hour, {updated})", ""]
     lines += [f"- [{m['name']}]({BASE}/gpu/{m['slug']}): {price_range(m)}, {m['vram_gb']} GB, {m['available_gpus']} free"
               for m in models]
-    lines += ["", "## Guides", "", f"- [Lium free credits]({BASE}/free-credits): $5 signup credit and grants"]
+    lines += ["", "## Guides", "", f"- [Lium free credits]({BASE}/free-credits): $5 signup credit and grants",
+              f"- [Pray for cheaper GPUs]({BASE}/pray): a joke global prayer counter"]
     write("llms.txt", "\n".join(lines) + "\n")
 
     print(f"built {len(models) + 1} pages into dist/ ({'live' if live else 'fallback'} prices, {updated})", file=sys.stderr)
