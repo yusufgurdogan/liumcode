@@ -339,6 +339,83 @@ New accounts get a $5 signup credit to try a GPU.</p>
                 og="/og/home.png", og_alt=f"Lium referral code {CODE}")
 
 
+def pct(a, b):
+    return (a - b) / b * 100 if b else 0
+
+
+def price_stats(m, pts):
+    """Summary of the lowest asking price over the last 30 days (or since tracking began).
+    Only snapshots with GPUs actually free count: a sold-out model's feed price is a reference, not an ask."""
+    if not pts:
+        return None
+    end = pts[-1]["t"]
+    win = [p for p in pts if p["t"] >= end - dt.timedelta(days=30)]
+    real = [p for p in win if p["available"] > 0]
+    if len(real) < 4 or (real[-1]["t"] - real[0]["t"]) < dt.timedelta(days=2):
+        return None
+    lows = sorted(p["min"] for p in real)
+    n = len(lows)
+    week = [p for p in real if p["t"] >= end - dt.timedelta(days=7)]
+    st = {
+        "full30": (end - pts[0]["t"]) >= dt.timedelta(days=29),
+        "start": win[0]["t"],
+        "low": min(real, key=lambda p: (p["min"], p["t"])),
+        "high": max(real, key=lambda p: (p["min"], p["t"])),
+        "avg": round(sum(lows) / n, 2),
+        "median": lows[n // 2] if n % 2 else (lows[n // 2 - 1] + lows[n // 2]) / 2,
+        "avail_avg": sum(p["available"] for p in win) / len(win),
+        "soldout_share": sum(p["available"] == 0 for p in win) / len(win),
+        "cur": m["min_price_usd_per_gpu_hour"] if m["available_gpus"] > 0 else None,
+        "last_real": real[-1],
+        "week_from": week[0] if len(week) >= 2 else None,
+    }
+    return st
+
+
+def price_context(name, st):
+    """Returns (paragraph html, cards html, extra faq items)."""
+    when = "over the past 30 days" if st["full30"] else f"since we started tracking on {st['start'].strftime('%-d %b %Y')}"
+    low, high, avg = st["low"], st["high"], st["avg"]
+    parts = [f"{when[0].upper() + when[1:]}, the cheapest {e(name)} on Lium has cost between <b>{usd(low['min'])}</b> and "
+             f"<b>{usd(high['min'])}</b> per GPU-hour, with an average of <b>{usd(avg)}</b>."]
+    cur = st["cur"]
+    if cur is not None:
+        d = pct(cur, avg)
+        rel = ("about the same as" if abs(d) < 3 else f"{abs(d):.0f}% {'below' if d < 0 else 'above'}")
+        parts.append(f"Today's lowest price, {usd(cur)}, is {rel} that average.")
+    else:
+        parts.append(f"None are free right now. The last available price was {usd(st['last_real']['min'])} "
+                     f"on {st['last_real']['t'].strftime('%-d %b')}.")
+    so = st["soldout_share"]
+    avail_txt = f"On average {st['avail_avg']:.0f} were free to rent at any time"
+    avail_txt += (f", and it was sold out in {so * 100:.0f}% of our snapshots." if so >= 0.05 else
+                  ", and it was rarely sold out.")
+    parts.append(avail_txt)
+    para = f"<p>{' '.join(parts)}</p>"
+
+    since = "" if st["full30"] else f" since {st['start'].strftime('%-d %b')}"
+    label = (lambda a: f"30-day {a}") if st["full30"] else (lambda a: f"{a[0].upper() + a[1:]}{since}")
+    cards = [f"<div class='card'><b>{usd(low['min'])}</b><span>{label('low')} (on {low['t'].strftime('%-d %b')})</span></div>",
+             f"<div class='card'><b>{usd(avg)}</b><span>{label('average')}</span></div>",
+             f"<div class='card'><b>{usd(high['min'])}</b><span>{label('high')}</span></div>"]
+    wf = st["week_from"]
+    week_txt = None
+    if wf and cur is not None:
+        d = pct(cur, wf["min"])
+        arrow = "flat" if abs(d) < 0.5 else (f"+{d:.0f}%" if d > 0 else f"−{-d:.0f}%")
+        cards.append(f"<div class='card'><b>{arrow}</b><span>7-day change ({usd(wf['min'])} → {usd(cur)})</span></div>")
+        week_txt = (f"In the last 7 days the lowest price went from {usd(wf['min'])} to {usd(cur)}"
+                    + (" (no real change)." if abs(d) < 0.5 else f" ({'up' if d > 0 else 'down'} {abs(d):.0f}%)."))
+    faq = [(f"What's the cheapest {name} price on Lium recently?",
+            f"{usd(low['min'])} per GPU-hour on {low['t'].strftime('%-d %b %Y')}, the lowest asking price {when}. "
+            f"The average lowest price over that time was {usd(avg)}.")]
+    if week_txt:
+        faq.append((f"Are {name} rental prices going up or down?",
+                    week_txt + " Prices are set by individual providers and can move several times a day, "
+                    "so check the chart above before you rent."))
+    return para, f"<div class='grid'>{''.join(cards)}</div>", faq
+
+
 def build_gpu(m, models, updated):
     name = m["name"]
     lo = m["min_price_usd_per_gpu_hour"]
@@ -363,6 +440,12 @@ def build_gpu(m, models, updated):
 
     peer_rows = price_table(peers, updated) if peers else ""
     pts = STATE["hist"].get(m["slug"], [])
+    st = price_stats(m, pts)
+    ctx_html = ""
+    if st:
+        para, cards, more_faq = price_context(name, st)
+        faq = faq[:1] + more_faq + faq[1:]
+        ctx_html = f"<h2>{e(name)} price trend</h2>\n{para}\n{cards}"
     hist_html = ""
     if pts:
         since = pts[0]["t"].strftime("%-d %b %Y")
@@ -374,9 +457,9 @@ def build_gpu(m, models, updated):
                        f"<td class='num'>{usd(p['max'])}</td><td class='num'>{p['available']}</td><td class='num'>{p['listed']}</td></tr>"
                        for p in reversed(pts[-40:]))
         note = ("" if len(pts) > 1 else
-                "<p class='small'>Tracking just started. A new snapshot is added every 6 hours, so the chart fills in over the coming days.</p>")
+                "<p class='small'>Tracking just started. A new snapshot is added every 3 hours, so the chart fills in over the coming days.</p>")
         hist_html = f"""<h2>{e(name)} price history</h2>
-<p>Lowest and highest asking price per GPU-hour on Lium, recorded every 6 hours since {since}.</p>
+<p>Lowest and highest asking price per GPU-hour on Lium, recorded about every 3 hours since {since}.</p>
 <div class="key"><span><i class="k-ln"></i>Lowest price</span><span><i class="k-band"></i>Range up to highest price</span></div>
 {price_chart}
 {note}
@@ -388,7 +471,7 @@ def build_gpu(m, models, updated):
 <p class="small">Full history for every GPU: <a href="/data/lium-gpu-price-history.csv">lium-gpu-price-history.csv</a> (CC BY 4.0, please link back).</p></details>"""
     body = f"""
 <div class="crumbs"><a href="/">Lium referral code</a> › <a href="/#prices">GPU prices</a> › {e(name)}</div>
-<h1>Lium {e(name)} price: from {usd(lo)}/hour</h1>
+<h1>NVIDIA {e(name)} rental price: from {usd(lo)}/hour on Lium</h1>
 <p class="lead">Rent an NVIDIA {e(name)} ({m['vram_gb']} GB) on Lium, billed per second. Right now: {e(status)}.</p>
 <div class="grid">
 <div class="card"><b>{price_range(m)}</b><span>per GPU-hour</span></div>
@@ -396,6 +479,7 @@ def build_gpu(m, models, updated):
 <div class="card"><b>{avail}</b><span>free now, {m['listed_gpus']} listed</span></div>
 <div class="card"><b>{usd(month)}</b><span>30 days at the lowest price</span></div>
 </div>
+{ctx_html}
 {codebox("Sign up with our referral code to rent it")}
 {hist_html}
 <p><a href="{e(m['url'])}" rel="nofollow">See live {e(name)} listings on lium.io</a>
@@ -405,11 +489,16 @@ def build_gpu(m, models, updated):
 {f'<h2>Other {e(cls.lower())} GPUs</h2>' + peer_rows if peers else ''}
 <p class="small">Prices updated {e(updated)}.</p>
 """
-    title = f"Lium {name} Price: from {usd(lo)}/hr + History"
-    desc = (f"Rent an NVIDIA {name} on Lium from {usd(lo)}/hr, billed per second. "
-            f"{m['vram_gb']} GB VRAM, live availability, and referral code {CODE}.")
+    title = f"{name} Rental Price: from {usd(lo)}/hr on Lium"
+    if st:
+        desc = (f"NVIDIA {name} rental price on Lium: from {usd(lo)}/hr today, "
+                f"{'30-day' if st['full30'] else 'recent'} low {usd(st['low']['min'])}, average {usd(st['avg'])}. "
+                f"Price history and live availability.")
+    else:
+        desc = (f"Rent an NVIDIA {name} on Lium from {usd(lo)}/hr, billed per second. "
+                f"{m['vram_gb']} GB VRAM, live availability, and referral code {CODE}.")
     return page(f"gpu/{m['slug']}.html", title, desc, body, [faq_ld(faq)],
-                og=f"/og/gpu/{m['slug']}.png", og_alt=f"Lium {name}: from {usd(lo)} per GPU-hour",
+                og=f"/og/gpu/{m['slug']}.png", og_alt=f"NVIDIA {name} on Lium: from {usd(lo)} per GPU-hour",
                 crumbs=[(SITE_NAME, BASE + "/"), ("GPU prices", BASE + "/#prices"), (name, canonical(f"gpu/{m['slug']}.html"))],
                 charts=bool(pts))
 

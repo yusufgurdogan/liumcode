@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '17 */6 * * *'   # refresh GPU prices every 6 hours
+    - cron: '17 */3 * * *'   # refresh GPU prices every 3 hours (GitHub skips some scheduled runs)
   workflow_dispatch:
 
 permissions:
@@ -48,7 +48,7 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
-      # Tell Bing/Yandex/Seznam (IndexNow) about changed pages. Only on push, not on the 6-hourly price refresh.
+      # Tell Bing/Yandex/Seznam (IndexNow) about changed pages. Only on push, not on the scheduled price refresh.
       - name: Ping IndexNow
         if: github.event_name == 'push'
         continue-on-error: true
