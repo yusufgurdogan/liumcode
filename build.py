@@ -115,6 +115,36 @@ tr:last-child td{border-bottom:0}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
 .pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
 .pill.ok{color:var(--ok);border-color:var(--ok)}
+.ptable tbody tr{position:relative;transition:background .12s}
+.ptable tbody tr:hover{background:var(--panel2)}
+.ptable tbody tr:focus-within{outline:2px solid var(--accent);outline-offset:-2px}
+.ptable a.row{color:var(--text);font-weight:600;text-decoration:none}
+.ptable a.row::after{content:"";position:absolute;inset:0}
+.ptable tr:hover a.row{color:var(--accent2)}
+.ptable .hi{color:var(--muted)}
+.ptable .sub{display:none;font-size:13px;color:var(--muted);font-weight:400;margin-top:2px}
+.ptable .ok-t{color:var(--ok)}
+.ptable .go{width:1%;color:var(--muted);font-size:20px;line-height:1;padding-left:4px}
+.ptable tr:hover .go{color:var(--accent2)}
+.ptable th button{all:unset;cursor:pointer;color:inherit}
+.ptable th button:hover{color:var(--text)}
+.ptable th button:focus-visible{outline:2px solid var(--accent);border-radius:4px}
+.ptable th[aria-sort] button{color:var(--text)}
+.ptable th[aria-sort=ascending] button::after{content:" ↑"}
+.ptable th[aria-sort=descending] button::after{content:" ↓"}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}
+.chip{border:1px solid var(--line);background:var(--panel);color:var(--muted);border-radius:99px;padding:6px 12px;
+font:500 14px system-ui,sans-serif;cursor:pointer}
+.chip span{opacity:.7;margin-left:2px}
+.chip:hover{color:var(--text)}
+.chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (max-width:640px){
+.ptable .c-vram,.ptable .c-now,.ptable .c-trend{display:none}
+.ptable .sub{display:block}
+.ptable td.c-name{white-space:normal}
+.ptable th,.ptable td{padding:10px 8px}
+.ptable .c-price .hi{display:block;font-size:13px}
+}
 details{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 16px;margin:8px 0}
 summary{cursor:pointer;font-weight:600}
 .note{border-left:3px solid var(--warn);padding:8px 12px;background:var(--panel);border-radius:0 8px 8px 0;font-size:14px;color:var(--muted)}
@@ -226,21 +256,63 @@ def codebox(label="Your Lium referral code"):
 </div>"""
 
 
-def price_table(models, updated):
+def price_table(models, updated, controls=False):
     rows = []
     for m in models:
         avail = m["available_gpus"]
         status = (f'<span class="pill ok">{avail} free</span>' if avail else '<span class="pill">sold out</span>')
+        sub_free = (f'<span class="ok-t">{avail} free</span>' if avail else 'sold out')
         pts = STATE["hist"].get(m["slug"], [])
         if pts:
             cutoff = pts[-1]["t"] - dt.timedelta(days=7)
             pts = [p for p in pts if p["t"] >= cutoff]
-        rows.append(f"""<tr><td><a href="/gpu/{e(m['slug'])}">{e(m['name'])}</a></td>
-<td class="num">{m['vram_gb']} GB</td><td class="num">{price_range(m)}</td><td>{status}</td><td>{chart.sparkline(pts)}</td></tr>""")
-    return f"""<div class="tablewrap"><table>
-<thead><tr><th>GPU</th><th class="num">VRAM</th><th class="num">$ / GPU / hour</th><th>Now</th><th>7-day low price</th></tr></thead>
+        lo, hi = m["min_price_usd_per_gpu_hour"], m["max_price_usd_per_gpu_hour"]
+        price = f"<b>{usd(lo)}</b>" + (f'<span class="hi">–{usd(hi)}</span>' if hi != lo else "")
+        rows.append(f"""<tr data-class="{e(m.get('gpu_class') or '')}" data-free="{avail}" data-price="{lo}" data-vram="{m['vram_gb']}" data-name="{e(m['name'])}">
+<td class="c-name"><a class="row" href="/gpu/{e(m['slug'])}">{e(m['name'])}</a><span class="sub">{m['vram_gb']} GB · {sub_free}</span></td>
+<td class="num c-vram">{m['vram_gb']} GB</td><td class="num c-price">{price}</td><td class="c-now">{status}</td>
+<td class="c-trend">{chart.sparkline(pts)}</td><td class="go" aria-hidden="true">›</td></tr>""")
+    head = ('<th class="c-name"><button data-sort="name">GPU</button></th>'
+            '<th class="num c-vram"><button data-sort="vram">VRAM</button></th>'
+            '<th class="num c-price"><button data-sort="price">$ / GPU / hour</button></th>'
+            '<th class="c-now"><button data-sort="free">Now</button></th><th class="c-trend">7-day low price</th><th class="go"></th>'
+            if controls else
+            '<th class="c-name">GPU</th><th class="num c-vram">VRAM</th><th class="num c-price">$ / GPU / hour</th>'
+            '<th class="c-now">Now</th><th class="c-trend">7-day low price</th><th class="go"></th>')
+    chips = ""
+    if controls:
+        n_free = sum(m["available_gpus"] > 0 for m in models)
+        groups = [("all", "All", len(models)), ("free", "Available now", n_free)]
+        for key, label in (("datacenter", "Data center"), ("professional", "Workstation"), ("consumer", "Consumer")):
+            c = sum(m.get("gpu_class") == key for m in models)
+            if c:
+                groups.append((key, label, c))
+        chips = ('<div class="chips" role="group" aria-label="Filter GPUs">' + "".join(
+            f'<button class="chip" data-filter="{k}" aria-pressed="{"true" if k == "all" else "false"}">{l} <span>{c}</span></button>'
+            for k, l, c in groups) + "</div>")
+    return f"""{chips}<div class="tablewrap"><table class="ptable{' sortable' if controls else ''}">
+<thead><tr>{head}</tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
 <p class="small">From Lium's public price feed, {e(updated)}. Ranges are live asks from different providers; sold-out models show the last known price.</p>"""
+
+
+TABLE_JS = """
+<script>
+(function(){var t=document.querySelector('table.sortable');if(!t)return;var tb=t.tBodies[0],rows=[].slice.call(tb.rows),orig=rows.slice();
+var chips=document.querySelectorAll('.chip'),cur={k:null,dir:1};
+chips.forEach(function(c){c.addEventListener('click',function(){var f=c.getAttribute('data-filter');
+chips.forEach(function(x){x.setAttribute('aria-pressed',x===c?'true':'false')});
+rows.forEach(function(r){r.hidden=!(f==='all'||(f==='free'?+r.dataset.free>0:r.dataset.class===f))})})});
+t.querySelectorAll('th button').forEach(function(b){b.addEventListener('click',function(){var k=b.getAttribute('data-sort');
+if(cur.k===k){cur.dir=-cur.dir}else{cur.k=k;cur.dir=(k==='name')?1:(k==='price'?1:-1)}
+t.querySelectorAll('th').forEach(function(th){th.removeAttribute('aria-sort')});
+b.parentNode.setAttribute('aria-sort',cur.dir>0?'ascending':'descending');
+var s=orig.slice().sort(function(a,c){var x,y,sa=+a.dataset.free>0,sc=+c.dataset.free>0;
+if(k!=='free'&&sa!==sc){return sa?-1:1}if(k==='name'){return cur.dir*a.dataset.name.localeCompare(c.dataset.name)}
+x=+a.dataset[k];y=+c.dataset[k];return cur.dir*(x-y)});s.forEach(function(r){tb.appendChild(r)})})});
+})();
+</script>
+"""
 
 
 def faq_html(items):
@@ -316,7 +388,7 @@ New accounts get a $5 signup credit to try a GPU.</p>
 <div class="tablewrap" style="padding:12px 16px;background:var(--panel)"><code>pip install lium.io &amp;&amp; lium up --gpu H100 --ttl 1h</code></div>
 
 <h2 id="prices">Lium GPU prices right now</h2>
-{price_table(models, updated)}
+{price_table(models, updated, controls=True)}
 
 <h2>Ways to save on Lium</h2>
 <div class="grid">
@@ -335,7 +407,7 @@ New accounts get a $5 signup credit to try a GPU.</p>
             f"Live H100, H200, B200 and RTX 5090 prices.")
     site_ld = {"@context": "https://schema.org", "@type": "WebSite", "name": SITE_NAME, "alternateName": DOMAIN,
                "url": BASE + "/", "inLanguage": "en"}
-    return page("index.html", title, desc, body, [site_ld, faq_ld(faq)],
+    return page("index.html", title, desc, body + TABLE_JS, [site_ld, faq_ld(faq)],
                 og="/og/home.png", og_alt=f"Lium referral code {CODE}")
 
 
