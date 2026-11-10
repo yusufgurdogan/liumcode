@@ -360,6 +360,8 @@ def build_index(data, models, updated, year):
          "them by the second through the website, a CLI (<code>pip install lium.io</code>), a Python SDK or an API."),
         ("Is this site run by Lium?",
          "No. It's an independent site that shares a referral code and a copy of Lium's public prices."),
+        ("If I pray for lower GPU prices, does it work?",
+         'Honestly? No idea. We\'ll find out at 10,000,000 brother 😭 <a href="/pray">Add yours</a> just in case.'),
     ]
 
     cards = []
