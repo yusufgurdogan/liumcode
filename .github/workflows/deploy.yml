@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.deployment2.outputs.page_url || steps.deployment3.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,8 +45,26 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+      # GitHub sometimes doesn't list the just-uploaded artifact yet ("No artifacts named github-pages"),
+      # which failed the run. Try the deploy up to three times, waiting in between.
       - name: Deploy
         id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - name: Wait before second deploy attempt
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 20
+      - name: Deploy (second attempt)
+        id: deployment2
+        if: steps.deployment.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+      - name: Wait before third deploy attempt
+        if: steps.deployment2.outcome == 'failure'
+        run: sleep 60
+      - name: Deploy (third attempt)
+        id: deployment3
+        if: steps.deployment2.outcome == 'failure'
         uses: actions/deploy-pages@v4
       # Tell Bing/Yandex/Seznam (IndexNow) about changed pages. Only on push, not on the scheduled price refresh.
       - name: Ping IndexNow
