@@ -294,7 +294,8 @@ def price_table(models, updated, controls=False):
     return f"""{chips}<div class="tablewrap"><table class="ptable{' sortable' if controls else ''}">
 <thead><tr>{head}</tr></thead>
 <tbody>{''.join(rows)}</tbody></table></div>
-<p class="small">From Lium's public price feed, {e(updated)}. Ranges are live asks from different providers; sold-out models show the last known price.</p>"""
+<p class="small">From Lium's public price feed, {e(updated)}. Ranges are live asks from different providers; sold-out models show the last known price.
+The lowest price can be a spot pod, which the provider can reclaim.</p>"""
 
 
 TABLE_JS = """
@@ -671,7 +672,8 @@ def main():
     year = t.year
 
     # Only models that actually have listings; cheapest-available first, then sold-out by price.
-    models = [m for m in data["models"] if m.get("listed_gpus", 0) > 0 and m.get("slug")]
+    # (Lium also lists unidentified cards as "Graphics Device" with no VRAM size; those are left out.)
+    models = [m for m in data["models"] if m.get("listed_gpus", 0) > 0 and m.get("slug") and m.get("vram_gb")]
     models.sort(key=lambda m: (m["available_gpus"] == 0, -m["min_price_usd_per_gpu_hour"]))
 
     if os.path.exists(DIST):
